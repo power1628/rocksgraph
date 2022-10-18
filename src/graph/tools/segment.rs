@@ -1,16 +1,16 @@
 use core::num;
+use std::collections::VecDeque;
+use std::fmt::DebugList;
+use std::fs::File;
+use std::io::{BufRead, BufReader, Write};
+use std::sync::{Arc, Mutex};
+
 use histogram::Histogram;
 use roaring::RoaringTreemap;
-use std::{
-    collections::VecDeque,
-    fmt::DebugList,
-    fs::File,
-    io::{BufRead, BufReader},
-    sync::{Arc, Mutex},
-};
 
+use crate::graph::r#type::*;
 use crate::graph::tools::file_sharder::shard_file_to_parts;
-use crate::graph::{r#type::*, tools::segment};
+use crate::graph::tools::segment;
 
 struct StatisTask {
     fpath: String,
@@ -65,6 +65,7 @@ impl StatisWorker {
                             assert_eq!(ids.len(), 2);
                             self.histo.increment(ids[0]).unwrap();
                             self.vids.insert(ids[0]);
+                            self.vids.insert(ids[1]);
                         }
 
                         if line_bytes == 0 || bytes_readed >= task_bytes as usize {
@@ -88,7 +89,7 @@ impl StatisWorker {
     }
 }
 
-struct StatisJob {
+pub struct StatisJob {
     worker_num: usize,
     input_dir: String,
     delimiter: char,
@@ -184,29 +185,78 @@ impl StatisJob {
 
 #[derive(Clone)]
 pub struct SegmentMeta {
-    fpath: String,
-    range: (VertexId, VertexId),
+    pub fpath: String,
+    pub range: (VertexId, VertexId),
 }
 
 pub struct SegmentWriter {
     meta: SegmentMeta,
     file: File,
+    buffer: Vec<(VertexId, VertexId)>,
+    buffer_cap: usize,
 }
 
+///
+/// segment file format:
+/// <u64><u64>[<from_id><to_id>]
+/// the first two u64 are the range of this segment.
 impl SegmentWriter {
-    pub fn open(meta: &SegmentMeta) -> Self {
-        let file = File::open(meta.fpath.clone()).unwrap();
+    pub fn open(meta: &SegmentMeta, buffer_cap: usize) -> Self {
+        let mut file = File::open(meta.fpath.clone()).unwrap();
+        let mut buf = vec![];
+        buf.write(&meta.range.0.to_be_bytes()).unwrap();
+        buf.write(&meta.range.1.to_be_bytes()).unwrap();
+        file.write(&buf).unwrap();
         Self {
             meta: meta.clone(),
             file,
+            buffer: Vec::with_capacity(buffer_cap),
+            buffer_cap,
         }
+    }
+
+    pub fn append_edges<I>(&mut self, edges: I)
+    where
+        I: IntoIterator<Item = (VertexId, VertexId)>,
+    {
+        for item in edges {
+            self.buffer.push(item);
+            if self.buffer.len() > self.buffer_cap {
+                self.flush();
+            }
+        }
+    }
+
+    pub fn append_edge(&mut self, edge: (VertexId, VertexId)) {
+        self.buffer.push(edge);
+        if self.buffer.len() > self.buffer_cap {
+            self.flush();
+        }
+    }
+
+    pub fn flush(&mut self) {
+        let mut buf = vec![];
+        for item in self.buffer.iter() {
+            buf.write(&(item.0.to_be_bytes())).unwrap();
+            buf.write(&(item.1.to_be_bytes())).unwrap();
+        }
+        self.file.write(&buf).unwrap();
+        self.buffer.clear();
+    }
+}
+
+impl Drop for SegmentWriter {
+    fn drop(&mut self) {
+        self.flush();
+        self.file.sync_all().unwrap();
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::StatisJob;
     use tokio::runtime::Runtime;
+
+    use super::StatisJob;
 
     #[test]
     fn test_cut_to_segment() {

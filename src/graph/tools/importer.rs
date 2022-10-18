@@ -12,22 +12,22 @@ use std::{
 use crate::graph::r#type::*;
 use crate::graph::tools::file_sharder::shard_file_to_parts;
 
-/// Stage 1 : get vertex statistics, decide how many buckets, and bucket range.
-/// Make sure each bucket holds a maximum of given vertices, so the bucket can
+/// Stage 1 : get vertex statistics, decide how many segments, and segment range.
+/// Make sure each segment holds a maximum of given vertices, so the segment can
 /// be kept in memory and do in-memory sorting.
 
-/// Stage 2 : write file to buckets
+/// Stage 2 : write file to segments
 /// read worker ( read files and parse file to (from, to) pairs )
-/// with range partition, send pair to buckets
+/// with range partition, send pair to segments
 ///    |
 ///    V
-/// write worker ( recv pair from channel and write to buckets),
-/// each worker in charge of some bucket sorting and writing.
+/// write worker ( recv pair from channel and write to segments),
+/// each worker in charge of some segment sorting and writing.
 ///    |
 ///    V
-/// bucket ( each bucket has an underlying file as durable storage )
+/// segment ( each segment has an underlying file as durable storage )
 
-/// Stage 3 : read buckets and make kv pairs and write to sst files.
+/// Stage 3 : read segments and make kv pairs and write to sst files.
 
 struct MapTask {
     pub fpath: String,

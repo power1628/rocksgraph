@@ -1,12 +1,10 @@
-use std::{
-    borrow::BorrowMut,
-    collections::VecDeque,
-    fmt::DebugList,
-    fs::File,
-    io::{BufRead, BufReader, Read, Seek, SeekFrom},
-    ops::Deref,
-    sync::{Arc, Mutex},
-};
+use std::borrow::BorrowMut;
+use std::collections::VecDeque;
+use std::fmt::DebugList;
+use std::fs::File;
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
+use std::ops::Deref;
+use std::sync::{Arc, Mutex};
 
 use crate::graph::r#type::*;
 
@@ -66,12 +64,41 @@ pub(crate) fn shard_file_to_parts(
     Ok(shards)
 }
 
+pub(crate) struct InputFileShard {
+    pub fpath: String,
+    pub range: (u64, u64),
+}
+
+pub(crate) fn shard_input(
+    input_dir: String,
+    shard_num: usize,
+) -> std::result::Result<VecDeque<InputFileShard>, std::io::Error> {
+    let mut res = VecDeque::new();
+    let mut files = vec![];
+    {
+        let dir = std::fs::read_dir(input_dir.clone())?;
+        for fpath in dir {
+            files.push(fpath?.path().to_str().unwrap().to_string());
+        }
+    }
+
+    for fpath in files {
+        let parts = shard_file_to_parts(fpath.clone(), shard_num as u64)?;
+        for range in parts {
+            res.push_back(InputFileShard {
+                fpath: fpath.clone(),
+                range,
+            })
+        }
+    }
+
+    Ok(res)
+}
+
 #[cfg(test)]
 mod test {
-    use std::{
-        fs::File,
-        io::{BufRead, BufReader, Seek, SeekFrom},
-    };
+    use std::fs::File;
+    use std::io::{BufRead, BufReader, Seek, SeekFrom};
 
     use super::shard_file_to_parts;
 

@@ -1,9 +1,6 @@
 use std::sync::Arc;
 
-use rocksdb::{
-    self, BlockBasedOptions, CompactOptions, DataBlockIndexType, Direction,
-    IngestExternalFileOptions, Options, ReadOptions, WriteBatch,
-};
+use rocksdb::{self, BlockBasedOptions, DataBlockIndexType, Options};
 
 pub const CF_VERTEX: &'static str = "vertex_cf";
 pub const CF_EDGE: &'static str = "edge_cf";
