@@ -77,11 +77,11 @@ impl StatisWorker {
     }
 
     fn histo(&mut self) -> Histogram {
-        self.histo
+        self.histo.clone()
     }
 
     fn vids(&mut self) -> RoaringTreemap {
-        self.vids
+        self.vids.clone()
     }
 }
 
@@ -192,5 +192,26 @@ impl SegmentWriter {
             meta: meta.clone(),
             file,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::StatisJob;
+    use tokio::runtime::Runtime;
+
+    #[test]
+    fn test_cut_to_segment() {
+        let worker_num = 64;
+        let fpath = String::from("/home/gaopin/dataset/twitter/edges");
+        let vertex_per_segment = 1_000_000;
+
+        let rt = Runtime::new().unwrap();
+
+        let mut job = StatisJob::new(worker_num, fpath, ',');
+
+        let handle = job.cut_to_segment(vertex_per_segment);
+        let segment = rt.handle().block_on(handle);
+        println!("{:?}", segment);
     }
 }
