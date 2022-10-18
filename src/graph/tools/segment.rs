@@ -55,10 +55,13 @@ impl StatisWorker {
                         bytes_readed += line_bytes;
                         if line_bytes > 0 {
                             // process line
-                            let ids: Vec<_> = line
-                                .split(self.delimiter)
-                                .map(|s| s.parse::<VertexId>().unwrap())
-                                .collect();
+                            let splits = line.trim().split(self.delimiter);
+                            let mut ids = vec![];
+                            for s in splits {
+                                ids.push(s.parse::<VertexId>().expect(
+                                    format!("parse line failed {:?} {:?}", line, s).as_str(),
+                                ));
+                            }
                             assert_eq!(ids.len(), 2);
                             self.histo.increment(ids[0]).unwrap();
                             self.vids.insert(ids[0]);
@@ -145,25 +148,30 @@ impl StatisJob {
         let mut vids = RoaringTreemap::new();
         for w in workers {
             let other = w.await.unwrap();
+            let (min, max) = (other.0.minimum().unwrap(), other.0.maximum().unwrap());
             histo.merge(&other.0);
+            let (min2, max2) = (histo.minimum().unwrap(), histo.maximum().unwrap());
+            println!("{} {} | {} {}", min, max, min2, max2);
             vids |= other.1;
         }
+        println!("num_v {}", vids.len());
 
         // decide segment range
         let num_segment = std::cmp::max(1, vids.len() as usize / vertex_per_segment);
         let mut segments = vec![];
-        let p = 1 as f64 / num_segment as f64;
+        let p = 100 as f64 / num_segment as f64;
         let mut prev = 0u64;
         for segid in 1..(num_segment + 1) {
             let high;
             if segid == num_segment {
-                high = histo.percentile(1f64).unwrap();
+                high = histo.percentile(100f64).unwrap();
             } else {
                 high = histo.percentile(segid as f64 * p).unwrap();
             }
             if high < prev {
                 break;
             }
+            println!("p {:?} {:?}", segid as f64 * p, high);
             segments.push((prev, high));
             prev = high;
         }
