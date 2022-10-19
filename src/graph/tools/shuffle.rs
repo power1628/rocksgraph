@@ -16,18 +16,18 @@ use crate::graph::tools::segment::*;
 pub struct ShuffleOptions {
     /// threads for reading input files
     #[clap(default_value = "16")]
-    read_threads: usize,
+    shuffle_read_threads: usize,
 
     /// threads for write shuffle files
     #[clap(default_value = "16")]
-    write_threads: usize,
+    shuffle_write_threads: usize,
 }
 
 impl Default for ShuffleOptions {
     fn default() -> Self {
         Self {
-            read_threads: 4,
-            write_threads: 4,
+            shuffle_read_threads: 4,
+            shuffle_write_threads: 4,
         }
     }
 }
@@ -98,7 +98,7 @@ impl Shuffle {
 
     async fn init_segments(&mut self) -> Vec<(VertexId, VertexId)> {
         let mut statis_job = StatisJob::new(
-            self.opts.read_threads + self.opts.write_threads,
+            self.opts.shuffle_read_threads + self.opts.shuffle_write_threads,
             self.input_dir.clone(),
             self.delimiter,
         );
@@ -111,7 +111,8 @@ impl Shuffle {
         let mut read_tasks = vec![];
         let mut write_tasks = vec![];
 
-        let input_shards = shard_input(self.input_dir.clone(), self.opts.read_threads).unwrap();
+        let input_shards =
+            shard_input(self.input_dir.clone(), self.opts.shuffle_read_threads).unwrap();
 
         let mut segments = self.init_segments().await;
         segments.sort_by(|a, b| a.0.cmp(&b.0));
@@ -122,12 +123,12 @@ impl Shuffle {
         std::fs::create_dir_all(self.shuffle_dir.clone()).unwrap();
 
         // start write task
-        for task_id in 0..self.opts.write_threads {
+        for task_id in 0..self.opts.shuffle_write_threads {
             // make channel
             let (tx, rx) = mpsc::channel::<(VertexId, VertexId)>();
             senders.push(tx);
             let task_id = task_id;
-            let num_task = self.opts.write_threads;
+            let num_task = self.opts.shuffle_write_threads;
             let segments = segments.clone();
             let shuffle_dir = self.shuffle_dir.clone();
 
@@ -172,7 +173,7 @@ impl Shuffle {
         // start read task
         let read_context =
             ReadTaskContext::new(senders, Arc::new(Mutex::new(input_shards)), segments);
-        for task_id in 0..self.opts.read_threads {
+        for task_id in 0..self.opts.shuffle_read_threads {
             let mut ctx = read_context.clone();
             let delimiter = self.delimiter;
             let task = tokio::spawn(async move {
@@ -303,8 +304,8 @@ mod tests {
     #[test]
     fn test_lj() {
         let opts = ShuffleOptions {
-            read_threads: 2,
-            write_threads: 2,
+            shuffle_read_threads: 2,
+            shuffle_write_threads: 2,
         };
         let input_dir = String::from("/Users/gaopin/dataset/lj");
         let shuffle_dir = String::from("/Users/gaopin/dataset/shuffle");
