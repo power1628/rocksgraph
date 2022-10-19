@@ -4,11 +4,18 @@ use std::{
     collections::VecDeque,
     fmt::DebugList,
     fs::File,
-    io::{BufRead, BufReader, Read, Seek, SeekFrom},
+    io::{BufRead, BufReader, Read, Seek, SeekFrom, Write},
     ops::Deref,
+    path::Path,
     sync::{Arc, Mutex},
 };
 
+use rayon::prelude::*;
+use rocksdb::Options;
+
+use super::segment::SegmentReader;
+use super::shuffle::{Shuffle, ShuffleOptions};
+use crate::graph::graph::Graph;
 use crate::graph::r#type::*;
 use crate::graph::tools::file_sharder::shard_file_to_parts;
 
@@ -28,130 +35,153 @@ use crate::graph::tools::file_sharder::shard_file_to_parts;
 /// segment ( each segment has an underlying file as durable storage )
 
 /// Stage 3 : read segments and make kv pairs and write to sst files.
-
-struct MapTask {
-    pub fpath: String,
-    pub range: (u64, u64),
-}
-
-fn gen_map_tasks(input_dir: String, shard_num: usize) -> Mutex<VecDeque<MapTask>> {
-    let res = Mutex::new(VecDeque::new());
-    let mut files = vec![];
-    {
-        let dir = std::fs::read_dir(input_dir).unwrap();
-        for fpath in dir {
-            files.push(fpath.unwrap().path().to_str().unwrap().to_string());
-        }
-    }
-
-    for fpath in files {
-        let parts = shard_file_to_parts(fpath.clone(), shard_num as u64).unwrap();
-        for range in parts {
-            let mut guard = res.lock().unwrap();
-            guard.push_back(MapTask {
-                fpath: fpath.clone(),
-                range,
-            })
-        }
-    }
-
-    res
-}
-
-struct MapWorker {
-    tasks: Arc<Mutex<VecDeque<MapTask>>>,
-    shuffle_dir: String,
-    shuffle_id: usize,
-    buffer_bytes: usize,
-    task_id: usize,
-    delimiter: char,
-
-    buffer: Vec<(u64, u64)>,
-    used_bytes: usize,
-}
-
-impl MapWorker {
-    pub fn new(
-        task_id: usize,
-        tasks: Arc<Mutex<VecDeque<MapTask>>>,
-        shuffle_dir: String,
-        buffer_bytes: usize,
-        delimiter: char,
-    ) -> Self {
-        Self {
-            task_id,
-            tasks,
-            shuffle_dir,
-            shuffle_id: 0usize,
-            buffer_bytes,
-            buffer: Vec::new(),
-            used_bytes: 0usize,
-            delimiter,
-        }
-    }
-
-    fn flush(&mut self) {}
-
-    fn do_task(&mut self) {
-        loop {
-            let task = self.tasks.lock().unwrap().pop_back();
-            match task {
-                Some(task) => {
-                    let file = File::open(task.fpath).unwrap();
-                    let range = task.range;
-                    let task_bytes = range.1 - range.0;
-                    let mut bytes_readed = 0usize;
-                    let mut reader = BufReader::new(file);
-                    reader.seek_relative(range.0 as i64).unwrap();
-                    loop {
-                        let mut line = String::new();
-                        let line_bytes = reader.read_line(&mut line).unwrap();
-                        bytes_readed += line_bytes;
-                        if line_bytes > 0 {
-                            // process line
-                            let ids: Vec<_> = line
-                                .split(self.delimiter)
-                                .map(|s| s.parse::<VertexId>().unwrap())
-                                .collect();
-                            assert_eq!(ids.len(), 2);
-                        }
-
-                        if line_bytes == 0 || bytes_readed >= task_bytes as usize {
-                            break;
-                        }
-                    }
-                }
-                None => {
-                    self.flush();
-                    break;
-                }
-            }
-        }
-    }
-}
+///    read segment file  (read worker (single))
+///          |
+///          V
+///       parallel sort ( sort worker (many) )
+///          |
+///          V
+///      write sst file ( write worker (many) )
+///          
 
 pub struct ImportOptions {
-    parallelism: usize,
+    shuffle_opts: ShuffleOptions,
+    read_threads: usize,
+    sort_threads: usize,
+    write_threads: usize,
+}
+
+impl Default for ImportOptions {
+    fn default() -> Self {
+        Self {
+            shuffle_opts: ShuffleOptions::default(),
+            read_threads: 4,
+            sort_threads: 32,
+            write_threads: 4,
+        }
+    }
 }
 
 pub struct GraphImporter {
     opts: ImportOptions,
     input_dir: String,
     output_dir: String,
+    shuffle_dir: String,
+    delimiter: char,
+    graph: Arc<Graph>,
 }
 
 impl GraphImporter {
-    pub fn new(input_dir: String, output_dir: String, opts: ImportOptions) -> Self {
+    pub fn new(
+        input_dir: String,
+        output_dir: String,
+        shuffle_dir: String,
+        opts: ImportOptions,
+        delimiter: char,
+        graph: Arc<Graph>,
+    ) -> Self {
         Self {
             opts,
             input_dir,
             output_dir,
+            shuffle_dir,
+            delimiter,
+            graph: graph.clone(),
         }
     }
 
-    async fn start_map_task(&self) -> std::result::Result<(), std::io::Error> {
-        let tasks = gen_map_tasks(self.input_dir.clone(), self.opts.parallelism);
+    fn write_sst(&mut self, fpath: String, out_path: String) {
+        // read file
+        let mut reader = SegmentReader::open(fpath.clone());
+        let mut data = vec![];
+        for item in reader {
+            data.push(item);
+        }
 
-        todo!()
+        // parallel sort
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(self.opts.sort_threads)
+            .build()
+            .unwrap();
+
+        data.par_sort_by(|a, b| a.0.cmp(&b.0));
+
+        // write sst file
+        if data.len() == 0 {
+            return;
+        }
+
+        // open sst file
+        let sst_fpath = Path::new(&out_path).join(Path::new(&fpath).file_name().unwrap());
+        let mut db_opts = Options::default();
+        let mut blk_opts = rocksdb::BlockBasedOptions::default();
+        blk_opts.set_data_block_index_type(rocksdb::DataBlockIndexType::BinaryAndHash);
+        blk_opts.set_data_block_hash_ratio(0.75);
+        db_opts.set_block_based_table_factory(&blk_opts);
+
+        let mut sst_writer = rocksdb::SstFileWriter::create(&db_opts);
+        sst_writer.open(sst_fpath.clone()).unwrap();
+
+        // form kv and write sst
+        let mut prev = data[0].0;
+        let mut buf = vec![];
+        for item in data {
+            if item.0 == prev {
+                buf.push(item.1);
+            } else {
+                let mut key = vec![];
+                let mut value = vec![];
+                key.write(prev.to_be_bytes().as_ref()).unwrap();
+                for nei in buf.iter() {
+                    value.write(nei.to_be_bytes().as_ref());
+                }
+                buf.clear();
+
+                // write to sst
+                sst_writer.put(key, value).unwrap();
+                prev = item.0;
+                buf.push(item.1);
+            }
+        }
+        if buf.len() > 0 {
+            let mut key = vec![];
+            let mut value = vec![];
+            key.write(prev.to_be_bytes().as_ref()).unwrap();
+            for nei in buf.iter() {
+                value.write(nei.to_be_bytes().as_ref());
+            }
+            buf.clear();
+
+            // write to sst
+            sst_writer.put(key, value).unwrap();
+        }
+
+        sst_writer.finish().unwrap();
+    }
+
+    async fn start(&mut self) {
+        // shuffle inputs
+        let mut shuffle = Shuffle::new(
+            self.opts.shuffle_opts.clone(),
+            self.shuffle_dir.clone(),
+            self.input_dir.clone(),
+            self.delimiter,
+        );
+
+        shuffle.do_shuffle().await;
+
+        // list segments
+        let mut files = vec![];
+        let dir = std::fs::read_dir(self.shuffle_dir.clone()).unwrap();
+        for fpath in dir {
+            files.push(fpath.unwrap().path().to_str().unwrap().to_string());
+        }
+
+        // create sst folder
+        std::fs::create_dir_all(self.output_dir.clone()).unwrap();
+
+        for file in files {
+            self.write_sst(file, self.output_dir.clone());
+        }
     }
 }

@@ -10,9 +10,19 @@ use crate::graph::r#type::*;
 use crate::graph::tools::file_sharder;
 use crate::graph::tools::segment::*;
 
+#[derive(Clone)]
 pub struct ShuffleOptions {
     read_threads: usize,
     write_threads: usize,
+}
+
+impl Default for ShuffleOptions {
+    fn default() -> Self {
+        Self {
+            read_threads: 4,
+            write_threads: 4,
+        }
+    }
 }
 
 #[derive(Clone)]

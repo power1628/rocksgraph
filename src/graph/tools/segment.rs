@@ -1,10 +1,11 @@
-use core::num;
+use core::{num, panic};
 use std::collections::VecDeque;
 use std::fmt::DebugList;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Seek, Write};
 use std::sync::{Arc, Mutex};
 
+use bytes::Buf;
 use histogram::Histogram;
 use roaring::RoaringTreemap;
 
@@ -254,6 +255,45 @@ impl Drop for SegmentWriter {
     }
 }
 
+pub struct SegmentReader {
+    // meta: SegmentMeta,
+    reader: BufReader<File>,
+}
+
+impl SegmentReader {
+    pub fn open(fpath: String) -> Self {
+        let mut file = File::open(fpath.clone()).unwrap();
+        file.seek(std::io::SeekFrom::Start((16))).unwrap();
+
+        Self {
+            reader: BufReader::new(file),
+        }
+    }
+}
+
+impl Iterator for SegmentReader {
+    type Item = (VertexId, VertexId);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut buf = [0; 16];
+        match self.reader.read(&mut buf) {
+            Ok(bytes) => {
+                if bytes == 0 {
+                    None
+                } else if bytes != 16 {
+                    panic!("file corrupted ");
+                } else {
+                    let mut rbuf = buf.as_ref();
+                    Some((rbuf.get_u64(), rbuf.get_u64()))
+                }
+            }
+            Err(err) => {
+                panic!("Error reading segment, err info {:?}", err);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use tokio::runtime::Runtime;
@@ -273,5 +313,13 @@ mod tests {
         let handle = job.cut_to_segment(vertex_per_segment);
         let segment = rt.handle().block_on(handle);
         println!("{:?}", segment);
+    }
+
+    #[test]
+    fn test_bytes() {
+        use bytes::Buf;
+        let buf: [u8; 16] = [0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 4];
+        let mut rbuf = buf.as_ref();
+        println!("{:?} {:?}", rbuf.get_u64(), rbuf.get_u64());
     }
 }
