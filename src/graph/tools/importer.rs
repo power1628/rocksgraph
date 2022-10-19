@@ -10,6 +10,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use clap::Parser;
 use rayon::prelude::*;
 use rocksdb::Options;
 
@@ -44,10 +45,21 @@ use crate::graph::tools::file_sharder::shard_file_to_parts;
 ///      write sst file ( write worker (many) )
 ///          
 
+#[derive(Debug, Parser, Clone)]
 pub struct ImportOptions {
+    #[clap(flatten)]
     shuffle_opts: ShuffleOptions,
+
+    /// threads for read shuffle files
+    #[clap(long, default_value = "1")]
     read_threads: usize,
+
+    /// threads for data sorting
+    #[clap(long, default_value = "32")]
     sort_threads: usize,
+
+    /// threads for writing sst files
+    #[clap(long, default_value = "1")]
     write_threads: usize,
 }
 
@@ -159,7 +171,7 @@ impl GraphImporter {
         sst_writer.finish().unwrap();
     }
 
-    async fn start(&mut self) {
+    pub async fn start(&mut self) {
         // shuffle inputs
         let mut shuffle = Shuffle::new(
             self.opts.shuffle_opts.clone(),

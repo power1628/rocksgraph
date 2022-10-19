@@ -4,15 +4,22 @@ use std::io::{BufRead, BufReader};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
+use clap::Parser;
+
 use super::file_sharder::{shard_input, InputFileShard};
 use super::segment;
 use crate::graph::r#type::*;
 use crate::graph::tools::file_sharder;
 use crate::graph::tools::segment::*;
 
-#[derive(Clone)]
+#[derive(Parser, Debug, Clone)]
 pub struct ShuffleOptions {
+    /// threads for reading input files
+    #[clap(default_value = "16")]
     read_threads: usize,
+
+    /// threads for write shuffle files
+    #[clap(default_value = "16")]
     write_threads: usize,
 }
 
