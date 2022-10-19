@@ -15,28 +15,22 @@ pub struct ShuffleOptions {
     write_threads: usize,
 }
 
-pub fn make_exchange_channel(
-    receiver_num: usize,
-) -> (
-    Vec<Sender<(VertexId, VertexId)>>,
-    Vec<Receiver<(VertexId, VertexId)>>,
-) {
-    let mut txs = vec![];
-    let mut rxs = vec![];
-
-    for _ in 0..receiver_num {
-        let (tx, rx) = mpsc::channel::<(VertexId, VertexId)>();
-        txs.push(tx);
-        rxs.push(rx);
-    }
-    (txs, rxs)
-}
-
 #[derive(Clone)]
 pub(crate) struct ReadTaskContext {
     txs: Vec<Sender<(VertexId, VertexId)>>,
     input_shards: Arc<Mutex<VecDeque<InputFileShard>>>,
     segments: Vec<(VertexId, VertexId)>,
+}
+
+fn find_segment_id(segments: &Vec<(u64, u64)>, q: (u64, u64)) -> usize {
+    match segments.binary_search_by(|probe| probe.0.cmp(&q.0)) {
+        Ok(index) => index,
+        Err(index) => index - 1,
+    }
+}
+
+fn find_writer_id(num_writer: usize, segments: &Vec<(u64, u64)>, q: (u64, u64)) -> usize {
+    find_segment_id(segments, q) % num_writer
 }
 
 impl ReadTaskContext {
@@ -57,11 +51,8 @@ impl ReadTaskContext {
     }
 
     pub fn push(&mut self, item: (VertexId, VertexId)) {
-        let shard = match self.segments.binary_search_by(|probe| probe.0.cmp(&item.0)) {
-            Ok(index) => index % self.txs.len(),
-            Err(index) => index % self.txs.len(),
-        };
-        self.txs[shard].send(item).unwrap();
+        let wid = find_writer_id(self.txs.len(), &self.segments, item);
+        self.txs[wid].send(item).unwrap();
     }
 }
 
@@ -110,6 +101,9 @@ impl Shuffle {
 
         let mut senders = vec![];
 
+        // create shuffle dir
+        std::fs::create_dir_all(self.shuffle_dir.clone()).unwrap();
+
         // start write task
         for task_id in 0..self.opts.write_threads {
             // make channel
@@ -121,6 +115,7 @@ impl Shuffle {
             let shuffle_dir = self.shuffle_dir.clone();
 
             let task = tokio::spawn(async move {
+                println!("write-task {} start", task_id);
                 // create segment writers
                 let mut writers: HashMap<usize, SegmentWriter> = HashMap::new();
                 for segid in 0..segments.len() {
@@ -144,23 +139,15 @@ impl Shuffle {
                 loop {
                     match rx.recv() {
                         Ok(item) => {
-                            let shard =
-                                match segments.binary_search_by(|probe| probe.0.cmp(&item.0)) {
-                                    Ok(index) => writers
-                                        .get_mut(&(index % num_task))
-                                        .unwrap()
-                                        .append_edge(item),
-                                    Err(index) => writers
-                                        .get_mut(&(index % num_task))
-                                        .unwrap()
-                                        .append_edge(item),
-                                };
+                            let segid = find_segment_id(&segments, item);
+                            writers.get_mut(&segid).unwrap().append_edge(item);
                         }
                         _ => {
                             break;
                         }
                     }
                 }
+                println!("write-task {} finish", task_id);
             });
             write_tasks.push(task);
         }
@@ -172,6 +159,7 @@ impl Shuffle {
             let mut ctx = read_context.clone();
             let delimiter = self.delimiter;
             let task = tokio::spawn(async move {
+                println!("read-task {} start", task_id);
                 loop {
                     let task = ctx.next_input_shard();
                     match task {
@@ -189,6 +177,7 @@ impl Shuffle {
                                 if line_bytes > 0 {
                                     // process line
                                     let ids: Vec<VertexId> = line
+                                        .trim()
                                         .split(delimiter)
                                         .map(|s| s.parse::<VertexId>().unwrap())
                                         .collect();
@@ -206,6 +195,7 @@ impl Shuffle {
                         }
                     }
                 }
+                println!("read-task {} finish", task_id);
             });
             read_tasks.push(task);
         }
@@ -214,10 +204,100 @@ impl Shuffle {
             task.await.unwrap();
         }
 
+        drop(read_context);
+
         for task in write_tasks {
             task.await.unwrap();
         }
 
         println!("shuffle done");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Shuffle, ShuffleOptions};
+
+    fn binary_search(segments: &Vec<(u64, u64)>, q: (u64, u64)) -> usize {
+        match segments.binary_search_by(|probe| probe.0.cmp(&q.0)) {
+            Ok(index) => index,
+            Err(index) => index - 1,
+        }
+    }
+
+    #[test]
+    fn test_find_segment() {
+        let segments: Vec<(u64, u64)> = vec![
+            (0, 973603),
+            (973603, 5737808),
+            (5737808, 7990150),
+            (7990150, 11928601),
+            (11928601, 14227080),
+            (14227080, 14596178),
+            (14596178, 15082718),
+            (15082718, 15535703),
+            (15535703, 16005465),
+            (16005465, 16458449),
+            (16458449, 16978543),
+            (16978543, 17498637),
+            (17498637, 18085839),
+            (18085839, 18538824),
+            (18538824, 19058918),
+            (19058918, 19545457),
+            (19545457, 19998442),
+            (19998442, 20669531),
+            (20669531, 21374174),
+            (21374174, 22162703),
+            (22162703, 23051895),
+            (23051895, 24024974),
+            (24024974, 25048384),
+            (25048384, 26206012),
+            (26206012, 27380417),
+            (27380417, 28605154),
+            (28605154, 30031217),
+            (30031217, 31541167),
+            (31541167, 33755759),
+            (33755759, 35567698),
+            (35567698, 37245420),
+            (37245420, 39023805),
+            (39023805, 40936408),
+            (40936408, 42916119),
+            (42916119, 44862276),
+            (44862276, 46674215),
+            (46674215, 48989471),
+            (48989471, 51975816),
+            (51975816, 55801021),
+            (55801021, 61639492),
+        ];
+
+        let q0 = (0u64, 1u64);
+        assert_eq!(0, binary_search(&segments, q0));
+
+        let q1: (u64, u64) = (973602, 1);
+        assert_eq!(0, binary_search(&segments, q1));
+
+        let q2: (u64, u64) = (55801021, 1);
+        assert_eq!(segments.len() - 1, binary_search(&segments, q2));
+
+        let q3: (u64, u64) = (55801022, 1);
+        assert_eq!(segments.len() - 1, binary_search(&segments, q3));
+    }
+
+    #[test]
+    fn test_lj() {
+        let opts = ShuffleOptions {
+            read_threads: 2,
+            write_threads: 2,
+        };
+        let input_dir = String::from("/Users/gaopin/dataset/lj");
+        let shuffle_dir = String::from("/Users/gaopin/dataset/shuffle");
+        let delimiter = '\t';
+
+        let mut shuffle = Shuffle::new(opts, shuffle_dir, input_dir, delimiter);
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+
+        let handle = shuffle.do_shuffle();
+        rt.block_on(handle);
     }
 }

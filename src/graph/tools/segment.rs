@@ -202,7 +202,7 @@ pub struct SegmentWriter {
 /// the first two u64 are the range of this segment.
 impl SegmentWriter {
     pub fn open(meta: &SegmentMeta, buffer_cap: usize) -> Self {
-        let mut file = File::open(meta.fpath.clone()).unwrap();
+        let mut file = File::create(meta.fpath.clone()).unwrap();
         let mut buf = vec![];
         buf.write(&meta.range.0.to_be_bytes()).unwrap();
         buf.write(&meta.range.1.to_be_bytes()).unwrap();
@@ -239,6 +239,8 @@ impl SegmentWriter {
         for item in self.buffer.iter() {
             buf.write(&(item.0.to_be_bytes())).unwrap();
             buf.write(&(item.1.to_be_bytes())).unwrap();
+            //buf.write(format!("{},{}\n", item.0, item.1).as_bytes())
+            //    .unwrap();
         }
         self.file.write(&buf).unwrap();
         self.buffer.clear();
