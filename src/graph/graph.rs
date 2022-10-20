@@ -192,11 +192,15 @@ impl Graph {
                 let task = tokio::spawn(async move {
                     let mut next_rtm = RoaringTreemap::new();
                     let mut esize = 0usize;
+                    let mut cost_get = 0u128;
+                    let mut cost_comp = 0u128;
 
                     loop {
                         match rx.recv() {
                             Ok(srcs) => {
+                                let tt = Instant::now();
                                 let neis_set = self_clone.multi_get_out_edge(etype, &srcs);
+                                cost_get += tt.elapsed().as_micros();
 
                                 for neis in neis_set {
                                     match neis {
@@ -216,10 +220,16 @@ impl Graph {
                                         _ => {}
                                     }
                                 }
+                                cost_comp += tt.elapsed().as_micros() - cost_get;
                             }
                             _ => break,
                         }
                     }
+
+                    println!(
+                        "worker step cost(us) get {:?} comp {:?}",
+                        cost_get, cost_comp
+                    );
                     next_rtm
                 });
                 tasks.push(task);
