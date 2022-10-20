@@ -12,7 +12,7 @@ use std::{
 
 use clap::Parser;
 use rayon::prelude::*;
-use rocksdb::Options;
+use rocksdb::{DBCompressionType, Options};
 
 use super::segment::SegmentReader;
 use super::shuffle::{Shuffle, ShuffleOptions};
@@ -130,6 +130,8 @@ impl GraphImporter {
         blk_opts.set_data_block_index_type(rocksdb::DataBlockIndexType::BinaryAndHash);
         blk_opts.set_data_block_hash_ratio(0.75);
         db_opts.set_block_based_table_factory(&blk_opts);
+
+        db_opts.set_compression_type(DBCompressionType::Lz4);
 
         let mut sst_writer = rocksdb::SstFileWriter::create(&db_opts);
         sst_writer.open(sst_fpath.clone()).unwrap();

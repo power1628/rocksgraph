@@ -22,15 +22,15 @@ struct Cmd {
     import_opts: ImportOptions,
 
     /// input dir
-    #[clap(long)]
+    #[clap(long, default_value = "./")]
     input_dir: String,
 
     /// output dir
-    #[clap(long)]
+    #[clap(long, default_value = "./")]
     output_dir: String,
 
     /// shuffle dir
-    #[clap(long)]
+    #[clap(long, default_value = "./")]
     shuffle_dir: String,
 
     /// delimiter

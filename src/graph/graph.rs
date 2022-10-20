@@ -7,7 +7,8 @@ use bytes::Buf;
 use crossbeam::channel::{unbounded, Receiver, Sender};
 use roaring::RoaringTreemap;
 use rocksdb::{
-    self, BlockBasedOptions, CompactOptions, DataBlockIndexType, IngestExternalFileOptions, Options,
+    self, BlockBasedOptions, CompactOptions, DBCompressionType, DataBlockIndexType,
+    IngestExternalFileOptions, Options,
 };
 
 use super::r#type::{EdgeType, VertexId};
@@ -43,6 +44,7 @@ impl Graph {
         db_opts.create_if_missing(true);
         db_opts.create_missing_column_families(true);
         db_opts.set_env(&env);
+        db_opts.set_compression_type(DBCompressionType::Lz4);
 
         // block cache opts
         {
@@ -149,7 +151,7 @@ impl Graph {
         } else if data_size < 20480 {
             128
         } else {
-            512
+            128
         }
     }
 
@@ -195,9 +197,10 @@ impl Graph {
                                             let size = raw.len() / std::mem::size_of::<VertexId>();
                                             for _ in 0..size {
                                                 let dst = buf.get_u64();
-                                                if !next_rtm.contains(dst) {
-                                                    next_rtm.insert(dst);
-                                                }
+                                                next_rtm.insert(dst);
+                                                //if !next_rtm.contains(dst) {
+                                                //    next_rtm.insert(dst);
+                                                //}
                                                 esize += 1;
                                             }
                                         }
