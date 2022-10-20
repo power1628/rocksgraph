@@ -6,7 +6,9 @@ use anyhow::Result;
 use bytes::Buf;
 use crossbeam::channel::{unbounded, Receiver, Sender};
 use roaring::RoaringTreemap;
-use rocksdb::{self, BlockBasedOptions, DataBlockIndexType, IngestExternalFileOptions, Options};
+use rocksdb::{
+    self, BlockBasedOptions, CompactOptions, DataBlockIndexType, IngestExternalFileOptions, Options,
+};
 
 use super::r#type::{EdgeType, VertexId};
 
@@ -79,6 +81,19 @@ impl Graph {
         MTDB::destroy(opts, db_path)
     }
 
+    pub fn compact(&self) -> anyhow::Result<()> {
+        let mut opts = CompactOptions::default();
+        opts.set_bottommost_level_compaction(rocksdb::BottommostLevelCompaction::ForceOptimized);
+        opts.set_change_level(true);
+        let cf = self.db.cf_handle(CF_EDGE).unwrap();
+        let now = std::time::Instant::now();
+
+        self.db
+            .compact_range_cf_opt(&cf, Option::<String>::None, Option::<String>::None, &opts);
+        println!("compaction cost(sec) : {:?}", now.elapsed().as_secs());
+        Ok(())
+    }
+
     pub fn ingest_sst(&self, sst_path: &str) -> anyhow::Result<()> {
         let now = Instant::now();
         println!("start ingest {:?}", sst_path);
@@ -96,7 +111,7 @@ impl Graph {
         self.db
             .ingest_external_file_cf_opts(&cf, &ingest_opts, files)?;
         println!("ingest done cost {:?}", now.elapsed().as_secs_f32());
-        Ok(())
+        self.compact()
     }
 
     pub fn seek_out_edge(&self, etype: EdgeType, from: VertexId) -> anyhow::Result<EdgeIter> {
