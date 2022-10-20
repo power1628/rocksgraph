@@ -8,7 +8,7 @@ use {anyhow, tokio};
 #[derive(Parser, Debug)]
 struct Cmd {
     /// cmd: gensst, loadsst
-    #[clap(long, possible_values = &["gensst", "loadsst"])]
+    #[clap(long, possible_values = &["gensst", "ingest"])]
     cmd: String,
 
     /// rocksdb path
@@ -49,14 +49,21 @@ async fn gensst(graph: Arc<Graph>, cmd: &Cmd) {
     importer.start().await;
 }
 
+async fn ingest(graph: Arc<Graph>, cmd: &Cmd) -> anyhow::Result<()> {
+    graph.ingest_sst(cmd.output_dir.as_str())
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cmd: Cmd = Cmd::parse();
+    println!("{:?}", cmd);
 
     let graph = Arc::new(Graph::open(cmd.db_path.clone(), None, true));
 
     if cmd.cmd == "gensst" {
         gensst(graph, &cmd).await;
+    } else if cmd.cmd == "ingest" {
+        ingest(graph, &cmd).await?;
     } else {
         println!("invalid cmd {:?}", cmd.cmd);
     }

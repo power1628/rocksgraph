@@ -1,6 +1,8 @@
 use std::sync::Arc;
+use std::time::Instant;
 
-use rocksdb::{self, BlockBasedOptions, DataBlockIndexType, Options};
+use anyhow::Result;
+use rocksdb::{self, BlockBasedOptions, DataBlockIndexType, IngestExternalFileOptions, Options};
 
 pub const CF_VERTEX: &'static str = "vertex_cf";
 pub const CF_EDGE: &'static str = "edge_cf";
@@ -56,5 +58,25 @@ impl Graph {
 
     pub fn destory(opts: &Options, db_path: String) -> std::result::Result<(), rocksdb::Error> {
         MTDB::destroy(opts, db_path)
+    }
+
+    pub fn ingest_sst(&self, sst_path: &str) -> anyhow::Result<()> {
+        let now = Instant::now();
+        println!("start ingest {:?}", sst_path);
+        let dir = std::fs::read_dir(sst_path)?;
+        let mut files = vec![];
+        for f in dir {
+            files.push(f.unwrap().path());
+        }
+
+        let mut ingest_opts = IngestExternalFileOptions::default();
+        ingest_opts.set_move_files(true);
+
+        let cf = self.db.cf_handle(CF_EDGE).unwrap();
+        //TODO(power): ingest options
+        self.db
+            .ingest_external_file_cf_opts(&cf, &ingest_opts, files)?;
+        println!("ingest done cost {:?}", now.elapsed().as_secs_f32());
+        Ok(())
     }
 }

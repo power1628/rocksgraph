@@ -169,6 +169,7 @@ impl GraphImporter {
         }
 
         sst_writer.finish().unwrap();
+        println!("write sst file {:?} done", sst_fpath.clone());
     }
 
     pub async fn start(&mut self) {
