@@ -8,7 +8,7 @@ use {anyhow, tokio};
 #[derive(Parser, Debug)]
 struct Cmd {
     /// cmd: gensst, loadsst
-    #[clap(long, possible_values = &["gensst, loadsst"])]
+    #[clap(long, possible_values = &["gensst", "loadsst"])]
     cmd: String,
 
     /// rocksdb path
