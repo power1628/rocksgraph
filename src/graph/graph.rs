@@ -70,7 +70,16 @@ impl Graph {
         }
 
         let cfs = vec![CF_VERTEX, CF_EDGE];
-        let db = MTDB::open_cf(&db_opts, &db_path, &cfs).unwrap();
+
+        //let db = MTDB::open_cf(&db_opts, &db_path, &cfs).unwrap();
+
+        let cf_descriptors = cfs
+            .clone()
+            .into_iter()
+            .map(|cfn| Ok(rocksdb::ColumnFamilyDescriptor::new(cfn, db_opts.clone())))
+            .collect::<Result<Vec<_>>>()
+            .unwrap();
+        let db = MTDB::open_cf_descriptors(&db_opts, &db_path, cf_descriptors).unwrap();
 
         Self {
             db_opts,
