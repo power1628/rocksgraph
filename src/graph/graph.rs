@@ -194,7 +194,10 @@ impl Graph {
                                             let mut buf: &[u8] = raw.as_ref();
                                             let size = raw.len() / std::mem::size_of::<VertexId>();
                                             for _ in 0..size {
-                                                next_rtm.insert(buf.get_u64());
+                                                let dst = buf.get_u64();
+                                                if !next_rtm.contains(dst) {
+                                                    next_rtm.insert(dst);
+                                                }
                                                 esize += 1;
                                             }
                                         }
