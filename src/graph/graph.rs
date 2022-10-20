@@ -202,6 +202,7 @@ impl Graph {
                                 let neis_set = self_clone.multi_get_out_edge(etype, &srcs);
                                 cost_get += tt.elapsed().as_micros();
 
+                                let tt = Instant::now();
                                 for neis in neis_set {
                                     match neis {
                                         Ok(value) => {
@@ -220,7 +221,7 @@ impl Graph {
                                         _ => {}
                                     }
                                 }
-                                cost_comp += tt.elapsed().as_micros() - cost_get;
+                                cost_comp += tt.elapsed().as_micros();
                             }
                             _ => break,
                         }
