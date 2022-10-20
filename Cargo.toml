@@ -10,8 +10,9 @@ rocksdb = "0.19.0"
 bytesize = "1.1.0"
 histogram = "0.6.9"
 tokio = { version = "1", features = ["full"] }
-roaring = "0.10.1"
+roaring = { version = "0.10.1", features = ["simd"] }
 bytes = "1.2.1"
 rayon = "1.5.3"
 clap = { version = "3.0", features = ["derive","env"] }
 anyhow = "1.0.65"
+crossbeam = "0.8.2"

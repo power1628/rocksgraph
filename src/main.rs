@@ -2,13 +2,15 @@ use std::sync::Arc;
 
 use clap::Parser;
 use rocksgraph::graph::graph::Graph;
+use rocksgraph::graph::r#type::EdgeType;
 use rocksgraph::graph::tools::importer::{GraphImporter, ImportOptions};
 use {anyhow, tokio};
+
 /// opts
 #[derive(Parser, Debug)]
 struct Cmd {
-    /// cmd: gensst, loadsst
-    #[clap(long, possible_values = &["gensst", "ingest"])]
+    /// cmd
+    #[clap(long, possible_values = &["gensst", "ingest", "kstep"])]
     cmd: String,
 
     /// rocksdb path
@@ -34,6 +36,18 @@ struct Cmd {
     /// delimiter
     #[clap(long, default_value = ",")]
     delimiter: char,
+
+    /// from vertex id
+    #[clap(long, default_value = "0")]
+    vid: u64,
+
+    /// kstep
+    #[clap(long, default_value = "1")]
+    kstep: usize,
+
+    /// query threads
+    #[clap(long, default_value = "10")]
+    thread: usize,
 }
 
 async fn gensst(graph: Arc<Graph>, cmd: &Cmd) {
@@ -53,6 +67,12 @@ async fn ingest(graph: Arc<Graph>, cmd: &Cmd) -> anyhow::Result<()> {
     graph.ingest_sst(cmd.output_dir.as_str())
 }
 
+async fn kstep(graph: Arc<Graph>, cmd: &Cmd) -> anyhow::Result<()> {
+    let etype = 1 as EdgeType;
+    let kstep_size = graph.kstep(etype, cmd.vid, cmd.kstep, cmd.thread).await?;
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cmd: Cmd = Cmd::parse();
@@ -64,6 +84,8 @@ async fn main() -> anyhow::Result<()> {
         gensst(graph, &cmd).await;
     } else if cmd.cmd == "ingest" {
         ingest(graph, &cmd).await?;
+    } else if cmd.cmd == "kstep" {
+        kstep(graph, &cmd).await?;
     } else {
         println!("invalid cmd {:?}", cmd.cmd);
     }
