@@ -81,14 +81,16 @@ async fn main() -> anyhow::Result<()> {
     let graph = Arc::new(Graph::open(cmd.db_path.clone(), None, true));
 
     if cmd.cmd == "gensst" {
-        gensst(graph, &cmd).await;
+        gensst(graph.clone(), &cmd).await;
     } else if cmd.cmd == "ingest" {
-        ingest(graph, &cmd).await?;
+        ingest(graph.clone(), &cmd).await?;
     } else if cmd.cmd == "kstep" {
-        kstep(graph, &cmd).await?;
+        kstep(graph.clone(), &cmd).await?;
     } else {
         println!("invalid cmd {:?}", cmd.cmd);
     }
+
+    println!("{}", graph.get_statistics().unwrap());
 
     Ok(())
 }

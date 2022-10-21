@@ -7,7 +7,7 @@ use bytes::Buf;
 use crossbeam::channel::{unbounded, Receiver, Sender};
 use roaring::RoaringTreemap;
 use rocksdb::{
-    self, BlockBasedOptions, CompactOptions, DBCompressionType, DataBlockIndexType,
+    self, BlockBasedOptions, CompactOptions, DBAccess, DBCompressionType, DataBlockIndexType,
     IngestExternalFileOptions, Options,
 };
 
@@ -45,6 +45,7 @@ impl Graph {
         db_opts.create_missing_column_families(true);
         db_opts.set_env(&env);
         db_opts.set_compression_type(DBCompressionType::Lz4);
+        db_opts.enable_statistics();
 
         // block cache opts
         {
@@ -90,6 +91,10 @@ impl Graph {
 
     pub fn destory(opts: &Options, db_path: String) -> std::result::Result<(), rocksdb::Error> {
         MTDB::destroy(opts, db_path)
+    }
+
+    pub fn get_statistics(&self) -> Option<String> {
+        self.db_opts.get_statistics()
     }
 
     pub fn compact(&self) -> anyhow::Result<()> {
