@@ -187,6 +187,7 @@ impl Graph {
             let (sx, rx) = unbounded();
 
             let batch_size = Graph::decide_batch_size(frontier.len());
+            let mut value_bytes = 0usize;
 
             // spawn tasks
             let mut tasks = Vec::new();
@@ -236,7 +237,7 @@ impl Graph {
                     //    "worker step cost(us) get {:?} comp {:?}",
                     //    cost_get, cost_comp
                     //);
-                    next_rtm
+                    (next_rtm, esize * std::mem::size_of::<VertexId>())
                 });
                 tasks.push(task);
             }
@@ -254,9 +255,10 @@ impl Graph {
             let mut convert_cost = 0f64;
 
             for task in tasks {
-                let task_res = task.await.unwrap();
+                let (task_rtm, task_bytes) = task.await.unwrap();
                 let tt = std::time::Instant::now();
-                rtm |= task_res;
+                rtm |= task_rtm;
+                value_bytes += task_bytes;
                 join_cost += tt.elapsed().as_micros() as f64;
             }
             let tt = std::time::Instant::now();
@@ -266,7 +268,7 @@ impl Graph {
                 frontier.push(datum);
             }
             convert_cost += tt.elapsed().as_micros() as f64;
-            println!("step {:?} batch_size {:?} frontier {:?} successor {:?} cost(micro) {:?} join {:?} convert {:?} prepare_cost {:?}",
+            println!("step {:?} batch_size {:?} frontier {:?} successor {:?} cost(micro) {:?} join {:?} convert {:?} prepare_cost {:?} value_bytes {:?}",
                                         cur_step,
                                         batch_size,
                                         prev_front_size,
@@ -274,7 +276,8 @@ impl Graph {
                                         now.elapsed().as_micros(),
                                         join_cost,
                                         convert_cost,
-                                        prepare_cost
+                                        prepare_cost,
+                                        value_bytes
                                     );
         }
         Ok(frontier.len())
