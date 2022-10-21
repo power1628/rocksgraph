@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Instant;
 
 use clap::Parser;
 use rocksgraph::graph::graph::Graph;
@@ -51,6 +52,7 @@ struct Cmd {
 }
 
 async fn gensst(graph: Arc<Graph>, cmd: &Cmd) {
+    let now = Instant::now();
     let mut importer = GraphImporter::new(
         cmd.input_dir.clone(),
         cmd.output_dir.clone(),
@@ -61,15 +63,21 @@ async fn gensst(graph: Arc<Graph>, cmd: &Cmd) {
     );
 
     importer.start().await;
+    println!("[gensst] cost(sec) {}", now.elapsed().as_secs_f64());
 }
 
 async fn ingest(graph: Arc<Graph>, cmd: &Cmd) -> anyhow::Result<()> {
-    graph.ingest_sst(cmd.output_dir.as_str())
+    let now = Instant::now();
+    let res = graph.ingest_sst(cmd.output_dir.as_str());
+    println!("[ingest] cost(sec) {}", now.elapsed().as_secs_f64());
+    res
 }
 
 async fn kstep(graph: Arc<Graph>, cmd: &Cmd) -> anyhow::Result<()> {
+    let now = Instant::now();
     let etype = 1 as EdgeType;
     let kstep_size = graph.kstep(etype, cmd.vid, cmd.kstep, cmd.thread).await?;
+    println!("[kstep] cost(ms) {}", now.elapsed().as_millis());
     Ok(())
 }
 
@@ -89,8 +97,6 @@ async fn main() -> anyhow::Result<()> {
     } else {
         println!("invalid cmd {:?}", cmd.cmd);
     }
-
-    println!("{}", graph.get_statistics().unwrap());
 
     Ok(())
 }
