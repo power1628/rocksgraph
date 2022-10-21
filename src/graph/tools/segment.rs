@@ -303,7 +303,7 @@ mod tests {
     #[test]
     fn test_cut_to_segment() {
         let worker_num = 64;
-        let fpath = String::from("/home/gaopin/dataset/twitter/edges");
+        let fpath = String::from("/path/to/twitter/edge");
         let vertex_per_segment = 1_000_000;
 
         let rt = Runtime::new().unwrap();

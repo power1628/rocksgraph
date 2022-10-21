@@ -307,8 +307,8 @@ mod tests {
             shuffle_read_threads: 2,
             shuffle_write_threads: 2,
         };
-        let input_dir = String::from("/Users/gaopin/dataset/lj");
-        let shuffle_dir = String::from("/Users/gaopin/dataset/shuffle");
+        let input_dir = String::from("/path/to/graph/edge");
+        let shuffle_dir = String::from("/path/to/shuffle/dir");
         let delimiter = '\t';
 
         let mut shuffle = Shuffle::new(opts, shuffle_dir, input_dir, delimiter);
